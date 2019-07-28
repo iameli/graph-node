@@ -1000,6 +1000,9 @@ fn coerce_variable_value(
 
     let resolver = |name: &Name| sast::get_named_type(&schema.document, name);
 
+    dbg!(&variable_def);
+    dbg!(&value);
+
     coerce_value(&value, &variable_def.var_type, &resolver, &HashMap::new()).ok_or_else(|| {
         vec![QueryExecutionError::InvalidArgumentError(
             variable_def.position,

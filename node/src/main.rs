@@ -9,6 +9,7 @@ extern crate graph_core;
 extern crate graph_datasource_ethereum;
 extern crate graph_runtime_wasm;
 extern crate graph_server_http;
+extern crate graph_server_index_node;
 extern crate graph_server_json_rpc;
 extern crate graph_server_websocket;
 extern crate graph_store_postgres;
@@ -29,7 +30,7 @@ use std::time::Duration;
 
 use graph::components::forward;
 use graph::log::logger;
-use graph::prelude::{JsonRpcServer as _, *};
+use graph::prelude::{IndexNodeServer as _, JsonRpcServer as _, *};
 use graph::tokio_executor;
 use graph::tokio_timer;
 use graph::tokio_timer::timer::Timer;
@@ -41,6 +42,7 @@ use graph_core::{
 use graph_datasource_ethereum::{BlockStreamBuilder, Transport};
 use graph_runtime_wasm::RuntimeHostBuilder as WASMRuntimeHostBuilder;
 use graph_server_http::GraphQLServer as GraphQLQueryServer;
+use graph_server_index_node::IndexNodeServer;
 use graph_server_json_rpc::JsonRpcServer;
 use graph_server_websocket::SubscriptionServer as GraphQLSubscriptionServer;
 use graph_store_postgres::{Store as DieselStore, StoreConfig};
@@ -208,6 +210,13 @@ fn async_main() -> impl Future<Item = (), Error = ()> + Send + 'static {
                 .help("Port for the GraphQL HTTP server"),
         )
         .arg(
+            Arg::with_name("index-node-port")
+                .default_value("8030")
+                .long("index-node-port")
+                .value_name("PORT")
+                .help("Port for the index node server"),
+        )
+        .arg(
             Arg::with_name("ws-port")
                 .default_value("8001")
                 .long("ws-port")
@@ -315,6 +324,13 @@ fn async_main() -> impl Future<Item = (), Error = ()> + Send + 'static {
         .unwrap()
         .parse()
         .expect("invalid admin port");
+
+    // Obtain index node server port
+    let index_node_port = matches
+        .value_of("index-node-port")
+        .unwrap()
+        .parse()
+        .expect("invalid index node server port");
 
     debug!(logger, "Setting up Sentry");
 
@@ -493,6 +509,13 @@ fn async_main() -> impl Future<Item = (), Error = ()> + Send + 'static {
     let mut subscription_server =
         GraphQLSubscriptionServer::new(&logger, graphql_runner.clone(), generic_store.clone());
 
+    let mut index_node_server = IndexNodeServer::new(
+        &logger_factory,
+        graphql_runner.clone(),
+        generic_store.clone(),
+        node_id.clone(),
+    );
+
     if env::var_os("DISABLE_BLOCK_INGESTOR").unwrap_or("".into()) != "true" {
         // BlockIngestor must be configured to keep at least REORG_THRESHOLD ancestors,
         // otherwise BlockStream will not work properly.
@@ -624,6 +647,13 @@ fn async_main() -> impl Future<Item = (), Error = ()> + Send + 'static {
         subscription_server
             .serve(ws_port)
             .expect("Failed to start GraphQL subscription server"),
+    );
+
+    // Run the index node server
+    tokio::spawn(
+        index_node_server
+            .serve(index_node_port)
+            .expect("Failed to start index node server"),
     );
 
     // Periodically check for contention in the tokio threadpool. First spawn a

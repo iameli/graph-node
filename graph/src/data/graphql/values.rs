@@ -75,6 +75,28 @@ pub trait ValueMap {
         T: TryFromValue;
 }
 
+impl ValueMap for Value {
+    fn get_required<T>(&self, key: &str) -> Result<T, Error>
+    where
+        T: TryFromValue,
+    {
+        match self {
+            Value::Object(map) => map.get_required(key),
+            _ => Err(format_err!("value is not a map: {:?}", self)),
+        }
+    }
+
+    fn get_optional<T>(&self, key: &str) -> Result<Option<T>, Error>
+    where
+        T: TryFromValue,
+    {
+        match self {
+            Value::Object(map) => map.get_optional(key),
+            _ => Err(format_err!("value is not a map: {:?}", self)),
+        }
+    }
+}
+
 impl ValueMap for &BTreeMap<String, Value> {
     fn get_required<T>(&self, key: &str) -> Result<T, Error>
     where
@@ -93,6 +115,24 @@ impl ValueMap for &BTreeMap<String, Value> {
             T::try_from_value(value)
                 .map(|value| Some(value))
                 .map_err(|e| e.into())
+        })
+    }
+}
+
+pub trait ValueList {
+    fn get_values<T>(&self) -> Result<Vec<T>, Error>
+    where
+        T: TryFromValue;
+}
+
+impl ValueList for Vec<Value> {
+    fn get_values<T>(&self) -> Result<Vec<T>, Error>
+    where
+        T: TryFromValue,
+    {
+        self.iter().try_fold(vec![], |mut acc, value| {
+            acc.push(T::try_from_value(value)?);
+            Ok(acc)
         })
     }
 }
